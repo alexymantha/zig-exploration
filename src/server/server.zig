@@ -1,5 +1,7 @@
 const std = @import("std");
-const messages = @import("message.zig");
+const messages = @import("networking").messages;
+const network = @import("network.zig");
+const dp = @import("dispatch.zig");
 
 pub const Player = struct {
     name: []const u8,
@@ -14,6 +16,8 @@ pub const ServerConfig = struct {
 pub const Server = struct {
     allocator: std.mem.Allocator,
     rand: std.Random.DefaultPrng,
+    listener: network.Listener,
+    mutex: std.Thread.Mutex,
 
     max_players: u32,
     players: std.ArrayList(Player) = undefined,
@@ -29,20 +33,36 @@ pub const Server = struct {
         };
         const prng = std.Random.DefaultPrng.init(seed);
 
-        return .{
+        var server: Server = .{
             .allocator = allocator,
             .rand = prng,
-            //no-collapse
+            .listener = undefined,
+            .mutex = std.Thread.Mutex{},
             .max_players = config.max_players,
             .players = players,
         };
+
+        const dispatcher = dp.Dispatcher{ .server = &server };
+        server.listener = try network.Listener.init(dispatcher);
+        return server;
     }
 
     pub fn deinit(self: *Server) void {
         self.players.deinit();
     }
 
+    pub fn start(self: *Server) !void {
+        const network_thread = try std.Thread.spawn(.{}, network.Listener.listen, .{self.listener});
+        network_thread.detach();
+
+        while (true) {
+            std.debug.print("Server tick\n", .{});
+            std.time.sleep(std.time.ns_per_s);
+        }
+    }
+
     pub fn dispatch(self: *Server, message: messages.Message) !void {
+        std.debug.print("Server will dispatch message.\n", .{});
         switch (message) {
             .player_join => try self.handle_player_join(message.player_join),
             else => return error.NoHandlerForMessage,
@@ -59,7 +79,11 @@ pub const Server = struct {
             .name = msg.name,
         };
 
-        try self.players.append(player);
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            try self.players.append(player);
+        }
 
         std.debug.print("{s} ({}) joined the server!", .{ player.name, player.id });
     }
@@ -68,12 +92,10 @@ pub const Server = struct {
         var server = try Server.init(std.testing.allocator, .{ .max_players = 1 });
         defer server.deinit();
 
-        try server.handle_player_join(.{
-            .name = "test-player",
-        });
+        const player1 = messages.PlayerJoin.init("test-player");
+        try server.handle_player_join(player1);
 
-        try std.testing.expectError(error.ServerFull, server.handle_player_join(.{
-            .name = "test-player2",
-        }));
+        const player2 = messages.PlayerJoin.init("test-player");
+        try std.testing.expectError(error.ServerFull, server.handle_player_join(player2));
     }
 };
