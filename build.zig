@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const flags_mod = b.createModule(.{
+        .root_source_file = b.path("lib/flags/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const networking_mod = b.createModule(.{
         .root_source_file = b.path("src/networking/main.zig"),
         .target = target,
@@ -32,6 +38,7 @@ pub fn build(b: *std.Build) void {
         .root_module = server_mod,
     });
     server.root_module.addImport("networking", networking_mod);
+    server.root_module.addImport("flags", flags_mod);
 
     b.installArtifact(server);
 
@@ -55,6 +62,7 @@ pub fn build(b: *std.Build) void {
         .root_module = client_mod,
     });
     client_exe.root_module.addImport("networking", networking_mod);
+    client_exe.root_module.addImport("flags", flags_mod);
 
     b.installArtifact(client_exe);
 
@@ -62,6 +70,9 @@ pub fn build(b: *std.Build) void {
     client_cmd.step.dependOn(b.getInstallStep());
     const client_step = b.step("client", "Run the client");
     client_step.dependOn(&client_cmd.step);
+    if (b.args) |args| {
+        client_cmd.addArgs(args);
+    }
 
     const server_check = b.addExecutable(.{
         .name = "server-tests",
@@ -70,6 +81,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     server_check.root_module.addImport("networking", networking_mod);
+    server_check.root_module.addImport("flags", flags_mod);
 
     const client_check = b.addExecutable(.{
         .name = "client-tests",
@@ -78,6 +90,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     client_check.root_module.addImport("networking", networking_mod);
+    client_check.root_module.addImport("flags", flags_mod);
 
     const check = b.step("check", "Check if exe compiles");
     check.dependOn(&server_check.step);
@@ -89,9 +102,13 @@ pub fn build(b: *std.Build) void {
     const client_unit_tests = b.addTest(.{
         .root_module = client_mod,
     });
+    const flags_unit_tests = b.addTest(.{
+        .root_module = flags_mod,
+    });
 
     const run_server_unit_tests = b.addRunArtifact(server_unit_tests);
     const run_client_unit_tests = b.addRunArtifact(client_unit_tests);
+    const run_flags_unit_tests = b.addRunArtifact(flags_unit_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
@@ -99,4 +116,5 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_server_unit_tests.step);
     test_step.dependOn(&run_client_unit_tests.step);
+    test_step.dependOn(&run_flags_unit_tests.step);
 }
