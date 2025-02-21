@@ -52,7 +52,7 @@ pub const Server = struct {
     }
 
     pub fn start(self: *Server) !void {
-        const network_thread = try std.Thread.spawn(.{}, network.Listener.listen, .{self.listener});
+        const network_thread = try std.Thread.spawn(.{}, network.Listener.listen, .{&self.listener});
         network_thread.detach();
 
         while (true) {

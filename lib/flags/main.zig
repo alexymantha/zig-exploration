@@ -4,7 +4,6 @@ const testing = std.testing;
 fn Flag(comptime T: anytype) type {
     return struct {
         name: []const u8,
-        required: bool = false,
         default_value: ?T = null,
     };
 }
@@ -49,7 +48,7 @@ pub fn Parser(T: anytype) type {
             };
         }
 
-        pub fn parse(_: *const Self, allocator: std.mem.Allocator, args: *std.process.ArgIterator) !T {
+        pub fn parse(self: *const Self, allocator: std.mem.Allocator, args: *std.process.ArgIterator) !T {
             var argsMap = std.StringHashMap([]const u8).init(allocator);
             defer argsMap.deinit();
 
@@ -59,19 +58,33 @@ pub fn Parser(T: anytype) type {
                 try argsMap.put(arg.key, arg.value);
             }
 
-            var value: T = undefined;
+            var result: T = undefined;
             inline for (
                 std.meta.fields(T),
             ) |field| {
-                const str = argsMap.get(field.name) orelse return error.ArgumentNotFound;
-                var val: field.type = undefined;
-                switch (field.type) {
-                    u32 => val = try std.fmt.parseInt(u32, str, 10),
-                    else => @compileError("Unsupported type in flag struct"),
+                const str = argsMap.get(field.name);
+                if (str) |value| {
+                    var val: field.type = undefined;
+                    switch (field.type) {
+                        u32 => val = std.fmt.parseInt(u32, value, 10) catch {
+                            std.log.err("Invalid type for flag '{s}', expected u32.", .{field.name});
+                            return error.ArgumentInvalidFormat;
+                        },
+                        else => @compileError("Unsupported type in flag struct"),
+                    }
+                    @field(result, field.name) = val;
+                } else {
+                    const flag_config: Flag(field.type) = @field(self.flags, field.name);
+                    if (flag_config.default_value == null) {
+                        std.log.err("Missing required flag '{s}'.", .{field.name});
+                        return error.MissingFlag;
+                    }
+
+                    @field(result, field.name) = flag_config.default_value.?;
                 }
-                @field(value, field.name) = val;
             }
-            return undefined;
+
+            return result;
         }
     };
 }
@@ -86,17 +99,27 @@ const Arg = struct {
         }
         const arg = value[2..];
 
-        const i = std.mem.indexOf(u8, value, "=");
+        const i = std.mem.indexOf(u8, arg, "=");
         if (i == null) {
             return .{ .key = arg, .value = "true" };
         }
 
-        return .{ .key = arg[0..i.?], .value = arg[i.?..] };
+        return .{ .key = arg[0..i.?], .value = arg[i.? + 1 ..] };
     }
 };
 
 test "parse argument" {
-    std.debug.print("test parsing", .{});
-    testing.expectEqual(try Arg.parse("--flag=value"), .{ .key = "flag", .value = "value" });
-    try testing.exp(Arg{ .key = "flag", .value = "value" }, try Arg.parse("--flag=value"));
+    {
+        const arg = try Arg.parse("--flag=value");
+        try testing.expectEqualStrings(arg.key, "flag");
+        try testing.expectEqualStrings(arg.value, "value");
+    }
+
+    {
+        const arg = try Arg.parse("--flag");
+        try testing.expectEqualStrings(arg.key, "flag");
+        try testing.expectEqualStrings(arg.value, "true");
+    }
+
+    try testing.expectError(error.NotArgument, Arg.parse("flag"));
 }

@@ -5,6 +5,7 @@ const flags = @import("flags");
 
 const Config = struct {
     my_flag: u32,
+    other_flag: u32,
 };
 
 pub fn main() !void {
@@ -12,11 +13,20 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const parser = try flags.Parser(Config).init(.{
-        .my_flag = .{ .name = "my_flag", .required = true, .default_value = 2 },
+        .my_flag = .{ .name = "my_flag", .default_value = 2 },
+        .other_flag = .{ .name = "other_flag", .default_value = 2 },
     });
 
     var args = std.process.args();
-    _ = try parser.parse(allocator, &args);
+
+    var config: Config = undefined;
+    if (parser.parse(allocator, &args)) |cfg| {
+        config = cfg;
+    } else |_| {
+        return;
+    }
+
+    std.debug.print("Got my_flag: {any}, other_flag: {any}\n", .{ config.my_flag, config.other_flag });
 
     // const config = parser.parse(std.process.args());
 

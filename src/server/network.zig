@@ -33,7 +33,7 @@ pub const Listener = struct {
         std.posix.close(self.socket);
     }
 
-    pub fn listen(self: Listener) !void {
+    pub fn listen(self: *Listener) !void {
         var buf: [max_message_length]u8 = undefined;
         var src_addr: std.net.Address = undefined;
         var addr_len: std.posix.socklen_t = @sizeOf(std.net.Address);
